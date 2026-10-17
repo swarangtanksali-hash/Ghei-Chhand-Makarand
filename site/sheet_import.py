@@ -7,16 +7,18 @@ Its address is read from the SHEET_CSV_URL environment variable.
   python site/sheet_import.py --file x.csv  # read a local CSV instead (for testing)
 
 Rules
-- A poem already on the site (same words) is skipped, so re-running is safe.
-- A poem whose opening and most of its text match an existing one is treated as a
-  revision: it becomes the main version and the old text moves to "earlier versions".
-- Anything else is added as a new poem.
+- Every Form entry becomes its own poem on its own date, even if the same text is
+  already on the site under another date.
+- Each Sheet row is published once: its id (from the Form timestamp, date and text)
+  is remembered in site/data/imported.json, so the daily re-run never adds it again.
+- The same text entered twice for the same date (an accidental double submit) is
+  published once.
 Standard library only. Exits non-zero, without writing anything, on any error.
 """
 import argparse
 import csv
 import datetime
-import difflib
+import hashlib
 import io
 import json
 import os
@@ -28,6 +30,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data", "poems.json")
+IMPORTED = os.path.join(HERE, "data", "imported.json")
 
 ALLOWED_HOSTS = ("docs.google.com",)
 ALLOWED_FINAL = ("docs.google.com", ".googleusercontent.com")
@@ -82,16 +85,8 @@ def parse_poem(text):
     return inv, stanzas, sig
 
 
-def body(stanzas):
-    return " ".join(l for st in stanzas for l in st)
-
-
 def key(stanzas):
     return "".join(ch for ch in unicodedata.normalize("NFC", "".join(l for st in stanzas for l in st)) if ch not in DROP)
-
-
-def opening(stanzas):
-    return re.sub(r"[\s।॥.,;:!?'\"()*_~/-]+", "", stanzas[0][0])[:14]
 
 
 # ---------- dates ----------
@@ -122,6 +117,19 @@ def parse_date(s, order="DMY"):
         return None
 
 
+def infer_order(values, default="DMY"):
+    """Work out day/month order from any value that can only be read one way (e.g. 10/17 or 17/10)."""
+    for v in values:
+        m = re.match(r"\s*(\d{1,2})[/.-](\d{1,2})[/.-]\d{2,4}", v or "")
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if a > 12:
+                return "DMY"
+            if b > 12:
+                return "MDY"
+    return default
+
+
 # ---------- sheet ----------
 def check_url(url):
     u = urllib.parse.urlparse(url)
@@ -146,29 +154,26 @@ def fetch(url):
     return text
 
 
-def infer_order(values, default="DMY"):
-    """Work out day/month order from any value that can only be read one way (e.g. 10/17 or 17/10)."""
-    for v in values:
-        m = re.match(r"\s*(\d{1,2})[/.-](\d{1,2})[/.-]\d{2,4}", v or "")
-        if m:
-            a, b = int(m.group(1)), int(m.group(2))
-            if a > 12:
-                return "DMY"
-            if b > 12:
-                return "MDY"
-    return default
+def row_id(timestamp, date, poem):
+    """Stable id for one Sheet row. The Form timestamp makes each submission unique."""
+    raw = "\x1f".join((timestamp.strip(), date.strip(), unicodedata.normalize("NFC", poem.strip())))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
 
 def rows_from_csv(text, order="DMY"):
-    """Return (iso_date or None, poem_text) for each non-empty row.
+    """Return (iso_date or None, poem_text, row_id) for each non-empty row.
 
     A "Date" column (the poem's own date) wins over the Form's "Timestamp" column.
+    Other columns (such as an email address) are ignored.
     """
     rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
     if not rows:
         return []
     head = [c.strip().lower() for c in rows[0]]
-    find = lambda pred: next((i for i, h in enumerate(head) if pred(h)), None)
+
+    def find(pred):
+        return next((i for i, h in enumerate(head) if pred(h)), None)
+
     date_col = find(lambda h: ("date" in h or "तारीख" in h) and "timestamp" not in h)
     ts_col = find(lambda h: "timestamp" in h)
     poem_col = find(lambda h: any(w in h for w in ("poem", "कविता", "text", "message")))
@@ -188,55 +193,49 @@ def rows_from_csv(text, order="DMY"):
         if not poem.strip():
             continue
         d = parse_date(cell(r, date_col), order) or parse_date(cell(r, ts_col), order)
-        out.append((d, poem))
+        out.append((d, poem, row_id(cell(r, ts_col), cell(r, date_col), poem)))
     return out
 
 
 # ---------- merge ----------
-def merge(poems, rows, today):
-    added = revised = skipped = 0
-    known = set()
-    for p in poems:
-        known.add(key(p["s"]))
-        for e in p["e"]:
-            known.add(key(e["s"]))
-    for d, text in sorted(rows, key=lambda r: r[0] or today):
+def merge(poems, rows, today, imported):
+    """Add each not-yet-imported row as a new poem. Returns (added, imported_before, empty_or_repeat)."""
+    added = already = other = 0
+    same_day = {(p["d"], key(p["s"])) for p in poems}
+    for d, text, rid in sorted(rows, key=lambda r: r[0] or today):
+        if rid in imported:
+            already += 1
+            continue
+        imported.add(rid)
         parsed = parse_poem(text)
         if not parsed:
-            skipped += 1
+            other += 1
             continue
         inv, stanzas, sig = parsed
-        k = key(stanzas)
-        if k in known:
-            skipped += 1
-            continue
         d = d or today
-        op, txt = opening(stanzas), body(stanzas)
-        best, best_r = None, 0.0
-        for p in poems:
-            if opening(p["s"]) == op:
-                r = difflib.SequenceMatcher(None, body(p["s"]), txt, autojunk=False).ratio()
-                if r > best_r:
-                    best, best_r = p, r
-        if best is not None and best_r >= 0.8:
-            best["e"].append({"d": best["r"] or best["d"], "s": best["s"]})
-            best["s"] = stanzas
-            best["inv"] = inv or best["inv"]
-            best["g"] = sig or best["g"]
-            best["r"] = d if d != best["d"] else ""
-            revised += 1
-        else:
-            poems.append({"n": max((p["n"] for p in poems), default=0) + 1, "d": d, "r": "",
-                          "inv": inv, "s": stanzas, "g": sig, "e": []})
-            added += 1
-        known.add(k)
-    return added, revised, skipped
+        if (d, key(stanzas)) in same_day:
+            other += 1
+            continue
+        poems.append({"n": max((p["n"] for p in poems), default=0) + 1, "d": d, "r": "",
+                      "inv": inv, "s": stanzas, "g": sig, "e": []})
+        same_day.add((d, key(stanzas)))
+        added += 1
+    return added, already, other
+
+
+def write_json(path, obj, indent):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=indent)
+        f.write("\n")
+    os.replace(tmp, path)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", help="read this local CSV instead of SHEET_CSV_URL")
     ap.add_argument("--data", default=DATA)
+    ap.add_argument("--imported", default=IMPORTED)
     args = ap.parse_args(argv)
     order = os.environ.get("SHEET_DATE_ORDER", "DMY").upper()
     try:
@@ -252,16 +251,20 @@ def main(argv=None):
         rows = rows_from_csv(text, order)
         with open(args.data, encoding="utf-8") as f:
             poems = json.load(f)
-        added, revised, skipped = merge(poems, rows, datetime.datetime.now(IST).date().isoformat())
+        imported = set()
+        if os.path.exists(args.imported):
+            with open(args.imported, encoding="utf-8") as f:
+                imported = set(json.load(f))
+        before = len(imported)
+        added, already, other = merge(poems, rows, datetime.datetime.now(IST).date().isoformat(), imported)
     except (OSError, ValueError, csv.Error, json.JSONDecodeError) as e:
         print(f"import failed: {e}", file=sys.stderr)
         return 1
-    print(f"sheet rows: {len(rows)}  added: {added}  revised: {revised}  already on site / empty: {skipped}")
-    if added or revised:
-        tmp = args.data + ".tmp"
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(poems, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, args.data)
+    print(f"sheet rows: {len(rows)}  added: {added}  imported before: {already}  empty or same-day repeat: {other}")
+    if added:
+        write_json(args.data, poems, indent=1)
+    if len(imported) != before:
+        write_json(args.imported, sorted(imported), indent=0)
     return 0
 
 

@@ -3,6 +3,8 @@
 - `data/poems.json` holds every poem. It is the source of truth.
 - `build.py` turns it into `../index.html`, using `style.css`, `app.js`, `themes.py` and `../makarand.png`.
 - `sheet_import.py` adds new poems from the Google Sheet (published as CSV) to `data/poems.json`.
+  Every Form entry is published as its own poem on its own date, even if the text was posted before.
+- `data/imported.json` remembers which Sheet rows are already published, so none is added twice.
 - `.github/workflows/daily-poems.yml` runs the import and build every morning at 09:00 IST and commits any change.
 
 Everything uses the Python standard library; nothing to install.
@@ -26,7 +28,6 @@ python -m unittest discover -s site
 
 ## Fixing a poem
 
-Correct the word in the poem's row in the Sheet. On the next run the importer sees
-mostly the same poem with a change, so it treats it as a revision: the corrected text
-becomes the main version and the old one is kept under "earlier versions". To remove
-the old text entirely, edit `data/poems.json` directly.
+Each Sheet row is published once. Editing a row afterwards publishes the edited text as a
+new entry and leaves the first one on the site. To correct or remove a poem that is
+already live, edit (or delete) its entry in `data/poems.json` and run `python site/build.py`.
