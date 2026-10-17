@@ -1,0 +1,45 @@
+name: Daily poems
+
+# Reads new poems from the published Google Sheet, rebuilds index.html and commits it.
+# Runs every morning at 09:00 IST, and can be run by hand from the Actions tab.
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-poems
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Test the importer
+        run: python3 -m unittest discover -s site
+
+      - name: Import new poems and rebuild
+        env:
+          SHEET_CSV_URL: ${{ vars.SHEET_CSV_URL }}
+          SHEET_DATE_ORDER: ${{ vars.SHEET_DATE_ORDER || 'DMY' }}
+        run: |
+          python3 site/sheet_import.py
+          python3 site/build.py
+
+      - name: Commit if anything changed
+        run: |
+          if git diff --quiet -- site/data/poems.json index.html; then
+            echo "No new poems today."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data/poems.json index.html
+          git commit -m "Add new poems from the sheet"
+          git push
