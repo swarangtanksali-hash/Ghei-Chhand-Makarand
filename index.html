@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>भावछंद · घेई छंद मकरंद</title>
-<meta name="description" content="भावछंद, poems by Makarand Joshi (घेई छंद मकरंद). 435 poems, 2024–2026.">
+<meta name="description" content="भावछंद, poems by Makarand Joshi (घेई छंद मकरंद). 434 poems, 2024–2026.">
 <meta name="color-scheme" content="light dark">
 <style>
 /* Layout concept: a reading room lit by a lamp. Motes of light drift over the title page; One compact title page (portrait + a verse to begin with),
@@ -250,6 +250,7 @@ mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
       byTopic: 'विषयानुसार', byDate: 'तारखेनुसार', browse: 'कविता कशा पाहायच्या',
       search: 'शब्द किंवा ओळ शोधा', searchLbl: 'कविता शोधा',
       poems: function (n) { return mnum(n) + ' कविता'; },
+      entries: function (n) { return mnum(n) + ' नोंदी'; },
       allDesc: 'सर्व कविता',
       none: 'अशी कविता सापडली नाही.',
       newer: '‹ नवीन', older: 'जुनी ›', copy: 'कॉपी', copied: 'कॉपी झाली', copyFail: 'मजकूर निवडून कॉपी करा',
@@ -271,6 +272,7 @@ mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
       byTopic: 'By topic', byDate: 'By date', browse: 'Browse poems',
       search: 'Search a word or line', searchLbl: 'Search poems',
       poems: function (n) { return n + (n === 1 ? ' poem' : ' poems'); },
+      entries: function (n) { return n + (n === 1 ? ' entry' : ' entries'); },
       allDesc: 'All poems',
       none: 'No poem matches.',
       newer: '‹ Newer', older: 'Older ›', copy: 'Copy', copied: 'Copied', copyFail: 'Select the text to copy',
@@ -314,7 +316,14 @@ mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
   function flat(s) { return s.map(function (st) { return st.join(' '); }).join(' '); }
   DATA.forEach(function (p) {
     p.text = (flat(p.s) + ' ' + p.e.map(function (e) { return flat(e.s); }).join(' ')).toLowerCase();
+    p.key = flat(p.s).normalize('NFC').replace(/[\s।॥.,;:!?\-–—'"()*_~\/]/g, '');
   });
+  /* A poem re-posted on another date is one poem: totals count unique poems, the list shows every entry. */
+  function uniq(items) {
+    var seen = {}, n = 0;
+    items.forEach(function (p) { if (!seen[p.key]) { seen[p.key] = 1; n++; } });
+    return n;
+  }
 
   var st = { view: 'topic', topic: null, month: null, q: '', cur: DATA[0].n };
   function term() { return st.q.trim().toLowerCase(); }
@@ -343,14 +352,14 @@ mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
   /* ---------- topics ---------- */
   var topicsBox = $('topics');
   var counts = {};
-  THEMES.forEach(function (t) { counts[t.k] = DATA.filter(function (p) { return p.t.indexOf(t.k) >= 0; }).length; });
+  THEMES.forEach(function (t) { counts[t.k] = uniq(DATA.filter(function (p) { return p.t.indexOf(t.k) >= 0; })); });
   var maxC = Math.max.apply(null, THEMES.map(function (t) { return counts[t.k]; }));
   function buildTopics() {
     var t = L();
     topicsBox.textContent = '';
     var all = el('button', 'chip'); all.type = 'button'; all.dataset.k = '';
     all.appendChild(el('span', 'mr', 'सर्व')); all.appendChild(el('span', 'en', t.allDesc));
-    all.appendChild(el('span', 'n', t.poems(DATA.length)));
+    all.appendChild(el('span', 'n', t.poems(uniq(DATA))));
     topicsBox.appendChild(all);
     THEMES.forEach(function (th) {
       var b = el('button', 'chip'); b.type = 'button'; b.dataset.k = th.k;
@@ -523,7 +532,8 @@ mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
     [].forEach.call(topicsBox.children, function (b) { b.setAttribute('aria-pressed', String((b.dataset.k || null) === st.topic)); });
     [].forEach.call(rhythm.querySelectorAll('.mo'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.m === st.month)); });
     [].forEach.call(document.querySelectorAll('.view button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.v === st.view)); });
-    var label = t.poems(items.length);
+    var u = uniq(items);
+    var label = t.poems(u) + (items.length > u ? ' · ' + t.entries(items.length) : '');
     if (st.view === 'topic' && st.topic) label += ' · ' + t.themeName(TN[st.topic]);
     if (st.view === 'date' && st.month) { var p = st.month.split('-'); label += ' · ' + t.months[+p[1] - 1] + ' ' + t.num(p[0]); }
     countEl.textContent = label;

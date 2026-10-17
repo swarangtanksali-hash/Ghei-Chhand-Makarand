@@ -6,7 +6,9 @@ import base64
 import datetime
 import json
 import os
+import re
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -44,7 +46,10 @@ def build():
              {"k": "eng", "mr": "इंग्रजी शब्द", "en": "Marathi with English words", "mrd": "मराठी-इंग्रजी मिश्र रचना"}]
     meta.sort(key=lambda t: ORDER.index(t["k"]))
 
-    n = len(data)
+    # A poem re-posted on another date counts once (same rule as the page's totals).
+    def poem_key(p):
+        return re.sub(r"[\s।॥.,;:!?\-–—'\"()*_~/]", "", unicodedata.normalize("NFC", "".join(l for st in p["s"] for l in st)))
+    n = len({poem_key(p) for p in data})
     years = sorted({p["d"][:4] for p in data})
     css, js = read("style.css"), read("app.js")
 
@@ -109,7 +114,7 @@ def build():
     out = os.path.join(ROOT, "index.html")
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(page)
-    print(f"built index.html: {n} poems")
+    print(f"built index.html: {n} poems, {len(data)} entries")
 
 
 if __name__ == "__main__":
