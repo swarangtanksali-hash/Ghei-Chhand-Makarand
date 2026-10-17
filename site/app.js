@@ -108,7 +108,7 @@
     [].forEach.call(document.querySelectorAll('[data-t]'), function (n) { n.textContent = t[n.getAttribute('data-t')]; });
     [].forEach.call(document.querySelectorAll('[data-tp]'), function (n) { n.setAttribute('placeholder', t[n.getAttribute('data-tp')]); });
     [].forEach.call(document.querySelectorAll('[data-ta]'), function (n) { n.setAttribute('aria-label', t[n.getAttribute('data-ta')]); });
-    var img = document.querySelector('.portrait'); if (img) img.alt = t.name;
+    var img = document.querySelector('.portrait img'); if (img) img.alt = t.name;
     [].forEach.call(document.querySelectorAll('.lang button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.l === lang)); });
   }
 

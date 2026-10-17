@@ -31,7 +31,7 @@ def js_json(o):
 def build():
     with open(os.path.join(HERE, "data", "poems.json"), encoding="utf-8") as f:
         poems = json.load(f)
-    with open(os.path.join(ROOT, "makarand.png"), "rb") as f:
+    with open(os.path.join(ROOT, "makarand.jpg"), "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
 
     data = []
@@ -57,7 +57,7 @@ def build():
 <header class="hero wide">
   <canvas id="motes" aria-hidden="true"></canvas>
   <div class="id">
-    <div class="halo"><img class="portrait" src="data:image/png;base64,{b64}" alt="मकरंद जोशी" width="132" height="132"></div>
+    <div class="halo"><div class="portrait"><div class="clip"><img src="data:image/jpeg;base64,{b64}" alt="मकरंद जोशी" width="835" height="1600"></div></div></div>
     <div>
       <p class="inv-top">श्रीराम जयराम जयजयराम</p>
       <h1>भावछंद</h1>

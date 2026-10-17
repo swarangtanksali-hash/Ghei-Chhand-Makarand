@@ -1,7 +1,7 @@
 # How the site is built
 
 - `data/poems.json` holds every poem. It is the source of truth.
-- `build.py` turns it into `../index.html`, using `style.css`, `app.js`, `themes.py` and `../makarand.png`.
+- `build.py` turns it into `../index.html`, using `style.css`, `app.js`, `themes.py` and `../makarand.jpg`.
 - `sheet_import.py` adds new poems from the Google Sheet (published as CSV) to `data/poems.json`.
   Every Form entry is published as its own poem on its own date, even if the text was posted before.
 - `data/imported.json` remembers which Sheet rows are already published, so none is added twice.
