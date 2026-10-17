@@ -99,6 +99,20 @@ class CsvTests(unittest.TestCase):
         csv_text = 'Timestamp,Poem\n17/10/2026 07:14:00,"ओळ एक\nओळ दोन"\n,\n'
         self.assertEqual(si.rows_from_csv(csv_text), [("2026-10-17", "ओळ एक\nओळ दोन")])
 
+    def test_us_form_layout_with_date_column(self):
+        # The layout of the real Form: Timestamp, Date, Poem, US month-first dates.
+        csv_text = ('Timestamp,Date,Poem\n'
+                    '10/17/2026 9:31:33,10/17/2026,"ओळ एक"\n'
+                    '11/05/2026 7:00:00,,"ओळ दोन"\n'          # no Date: falls back to Timestamp, 5 Nov
+                    '11/06/2026 7:00:00,11/04/2026,"ओळ तीन"\n')  # Date wins over Timestamp
+        self.assertEqual(si.rows_from_csv(csv_text), [
+            ("2026-10-17", "ओळ एक"), ("2026-11-05", "ओळ दोन"), ("2026-11-04", "ओळ तीन")])
+
+    def test_order_inferred_from_any_unambiguous_value(self):
+        self.assertEqual(si.infer_order(["05/10/2026", "10/17/2026"]), "MDY")
+        self.assertEqual(si.infer_order(["05/10/2026", "17/10/2026"]), "DMY")
+        self.assertEqual(si.infer_order(["05/10/2026"], "MDY"), "MDY")
+
     def test_headerless_single_column(self):
         self.assertEqual(si.rows_from_csv('"ओळ एक\nओळ दोन"\n'), [(None, "ओळ एक\nओळ दोन")])
 

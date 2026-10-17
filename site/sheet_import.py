@@ -146,25 +146,48 @@ def fetch(url):
     return text
 
 
+def infer_order(values, default="DMY"):
+    """Work out day/month order from any value that can only be read one way (e.g. 10/17 or 17/10)."""
+    for v in values:
+        m = re.match(r"\s*(\d{1,2})[/.-](\d{1,2})[/.-]\d{2,4}", v or "")
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if a > 12:
+                return "DMY"
+            if b > 12:
+                return "MDY"
+    return default
+
+
 def rows_from_csv(text, order="DMY"):
-    """Yield (iso_date or None, poem_text) for each non-empty row."""
+    """Return (iso_date or None, poem_text) for each non-empty row.
+
+    A "Date" column (the poem's own date) wins over the Form's "Timestamp" column.
+    """
     rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
     if not rows:
         return []
     head = [c.strip().lower() for c in rows[0]]
-    date_col = next((i for i, h in enumerate(head) if any(w in h for w in ("timestamp", "date", "तारीख"))), None)
-    poem_col = next((i for i, h in enumerate(head) if any(w in h for w in ("poem", "कविता", "text", "message"))), None)
-    has_header = date_col is not None or poem_col is not None
+    find = lambda pred: next((i for i, h in enumerate(head) if pred(h)), None)
+    date_col = find(lambda h: ("date" in h or "तारीख" in h) and "timestamp" not in h)
+    ts_col = find(lambda h: "timestamp" in h)
+    poem_col = find(lambda h: any(w in h for w in ("poem", "कविता", "text", "message")))
+    has_header = any(c is not None for c in (date_col, ts_col, poem_col))
     data = rows[1:] if has_header else rows
     if poem_col is None:  # fall back to the column holding the longest text
         width = max(len(r) for r in data) if data else 0
         poem_col = max(range(width), key=lambda i: sum(len(r[i]) for r in data if i < len(r)), default=0)
+
+    def cell(r, i):
+        return r[i] if i is not None and i < len(r) else ""
+
+    order = infer_order([cell(r, c) for r in data for c in (date_col, ts_col)], order)
     out = []
     for r in data:
-        poem = r[poem_col] if poem_col < len(r) else ""
+        poem = cell(r, poem_col)
         if not poem.strip():
             continue
-        d = parse_date(r[date_col], order) if date_col is not None and date_col < len(r) else None
+        d = parse_date(cell(r, date_col), order) or parse_date(cell(r, ts_col), order)
         out.append((d, poem))
     return out
 
